@@ -4,6 +4,28 @@ An agent that orchestrates wireless security tools (recon, handshake capture,
 cracking, packet analysis) against **networks you are authorised to test**, and
 produces structured findings reports.
 
+## Installer og kjør
+
+På Kali Linux:
+
+```bash
+git clone https://github.com/groonning/connect
+cd connect
+sudo ./connect install     # verktøy (aircrack-ng, wifite, tshark, nmap) + Ollama + modell + venv + ordliste + global `connect`
+```
+
+Legg nettet ditt i `config/authorized_targets.yaml`, så:
+
+```bash
+sudo connect start         # STEG 1: monitor mode — skann, fang håndtrykk, crack passord
+#   dashbord: http://127.0.0.1:8777
+sudo connect step2 "SSID" "passord"   # STEG 2: nett på — enhets- og CVE-skann
+sudo connect stop          # stopper alt, kort tilbake, nett tilbake, Ollama ned
+```
+
+`connect start` tar nettet (monitor mode på ett kort); `connect step2` og `connect stop` gir det tilbake.
+`connect help` viser alle kommandoer, `connect status` viser hvilken fase du er i.
+
 ## ⚠️ Authorisation — read first
 
 This toolkit only runs active operations against targets you explicitly place in
