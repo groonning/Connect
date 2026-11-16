@@ -11,6 +11,7 @@ REQUIRED = {
     "aircrack-ng": ("aircrack-ng", "crack handshake"),
     "tshark":      ("tshark", "traffic inspection + decryption"),
     "nmap":        ("nmap", "device weakness scan"),
+    "hcxpcapngtool": ("hcxtools", "PMKID extraction"),
 }
 
 

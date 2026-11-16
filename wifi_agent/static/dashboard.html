@@ -64,6 +64,11 @@
 <div id="nextStep" style="padding:9px 20px;background:#0e1b2e;border-bottom:1px solid #1f3b5c;font-size:13px;color:#e6edf3;display:flex;align-items:center;gap:8px"></div>
 <div class="wrap">
  <div class="panel" id="phaseBanner"></div>
+ <div class="panel" id="modelPanel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <span style="font-size:13px;color:var(--mut)">🧠 Lokal modell (Ollama):</span>
+  <select id="modelSel" onchange="setModel()"></select>
+  <span id="modelNote" class="muted"></span>
+ </div>
  <div class="panel"><h2>Nettverk i nærheten</h2>
   <table id="apTable"><thead><tr><th>SSID</th><th>BSSID</th><th>Kanal</th>
    <th>Kryptering</th><th>Signal</th><th>Enheter</th><th></th></tr></thead><tbody></tbody></table>
@@ -286,7 +291,17 @@ function renderPhase(){const ph=String(STATE.phase||"1");
    '<div class="cmd">sudo connect step2 "SSID" "passord"</div></div>'+
   '</div>'+(ph==="1"?'<p class="muted mt">Aktiv enhets-skanning er av i steg 1 (ingen nett). Kjør steg 2 når passordet er knekt.</p>':'<p class="muted mt">Nett aktivt — kjør aktiv nmap-skanning i svakhet-spalten nå.</p>');}
 
-async function init(){renderTools((await api("/api/tools")).tools);refresh();refreshTraffic();
+async function loadModels(){const m=await api("/api/models");const sel=document.getElementById("modelSel");
+ const cur=m.current,av=m.available||[];
+ const opts=av.length?av.slice():[cur];
+ if(!opts.includes(cur))opts.unshift(cur);
+ if(!opts.includes(m.default))opts.push(m.default);
+ sel.innerHTML=[...new Set(opts)].map(x=>'<option value="'+x+'"'+(x===cur?" selected":"")+'>'+x+(x===m.default?" (standard)":"")+'</option>').join("");
+ const have=av.includes(cur)||av.some(x=>x.split(":")[0]===cur.split(":")[0]);
+ document.getElementById("modelNote").innerHTML=av.length?(have?'<span style="color:#3fb950">\u2713 nedlastet</span>':'<span style="color:#d29922">ikke nedlastet \u2014 kjør: ollama pull '+cur+'</span>'):"Ollama ikke oppe ennå";}
+async function setModel(){const v=document.getElementById("modelSel").value;await api("/api/model",{model:v});loadModels();}
+async function init(){renderTools((await api("/api/tools")).tools);loadModels();refresh();refreshTraffic();
+ setInterval(loadModels,8000);
  setInterval(refresh,3000);setInterval(refreshTraffic,4000);}
 init();
 </script></body></html>

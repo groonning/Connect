@@ -67,7 +67,7 @@ def create_app(iface: str, autostart: bool = True) -> Flask:
                     step1_complete=any(j['kind']=='crack' and j['password']
                                       for j in jobs.snapshot().values())
                                       or os.path.exists('.run/step1_done'),
-                    decrypting=len(cracked_keys()))
+                    decrypting=len(cracked_keys()), model=llm.current_model())
         return jsonify(data)
 
     @app.post("/api/scan/start")
@@ -116,6 +116,20 @@ def create_app(iface: str, autostart: bool = True) -> Flask:
             return jsonify(ok=True, job=j.dict())
         except ScopeError as e:
             return jsonify(ok=False, error=str(e)), 403
+
+    @app.get("/api/models")
+    def models():
+        return jsonify(current=llm.current_model(), default=llm.DEFAULT_MODEL,
+                       available=llm.list_models())
+
+    @app.post("/api/model")
+    def set_model():
+        b = request.json or {}
+        name = (b.get("model") or "").strip()
+        if not name:
+            return jsonify(ok=False, error="mangler modellnavn"), 400
+        llm.set_model(name)
+        return jsonify(ok=True, current=name)
 
     @app.post("/api/auto")
     def auto():

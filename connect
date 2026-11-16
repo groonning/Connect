@@ -8,7 +8,7 @@ set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 RUN=".run"; mkdir -p "$RUN"
 IFACE="${2:-wlan0}"
-MODEL="${OLLAMA_MODEL:-qwen3:30b-a3b}"
+MODEL="${OLLAMA_MODEL:-$(cat .run/model 2>/dev/null || echo qwen3:30b-a3b)}"
 PY=".venv/bin/python3"; [ -x "$PY" ] || PY="python3"
 
 C0='\033[0m'; B='\033[1m'; CY='\033[38;5;44m'; GR='\033[38;5;46m'
@@ -29,7 +29,14 @@ ensure_ollama(){ printf "${CY}▸ Ollama${C0}\n"
     nohup ollama serve >"$RUN/ollama.log" 2>&1 & echo $! > "$RUN/ollama.pid"
     touch "$RUN/ollama.started"; sleep 2; printf "  startet ollama serve\n"
   else printf "  kjører allerede\n"; fi
-  ollama list 2>/dev/null | grep -q "${MODEL%%:*}" || { printf "  henter ${MODEL}…\n"; ollama pull "$MODEL"; }; }
+  # NB: henter ikke modell her — det krever nett og steg 1 er i monitor mode.
+  if ! ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
+    printf "  ${YL}modell ${MODEL} ikke lastet ned — kjør 'sudo connect update' mens du har nett${C0}\n"; fi; }
+
+pull_model(){ printf "${CY}▸ Modell (${MODEL})${C0}\n"
+  (curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 & sleep 3))
+  if ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then printf "  allerede nedlastet\n"
+  else printf "  henter ${MODEL} (kan ta en stund)…\n"; ollama pull "$MODEL"; fi; }
 
 ensure_server(){ if ! pgrep -f wifi_agent.server >/dev/null; then
     systemd-inhibit --what=sleep:idle:handle-lid-switch --who=connect \
@@ -60,6 +67,7 @@ update(){ need_root "$@"; ensure_link; logo
   AFTER=$(git rev-parse --short HEAD 2>/dev/null)
   printf "${CY}▸ Oppdaterer Python-avhengigheter${C0}\n"
   [ -x .venv/bin/pip ] && .venv/bin/pip install -q -r requirements.txt 2>/dev/null
+  pull_model
   ensure_link
   if [ "$BEFORE" = "$AFTER" ]; then
     printf "\n${GR}${B}✓ Allerede nyeste versjon ($AFTER).${C0}\n"
@@ -75,15 +83,14 @@ install(){ need_root "$@"; logo
   ensure_link; printf "${CY}▸ Global 'connect'-kommando klar${C0}\n"
   printf "${CY}▸ Verktøy (aircrack-ng, wifite, tshark, nmap)${C0}\n"
   apt-get update -y
-  apt-get install -y aircrack-ng wifite tshark nmap iw net-tools \
+  apt-get install -y aircrack-ng wifite tshark nmap iw net-tools hcxtools hcxdumptool cowpatty \
                      python3-venv python3-pip curl xdg-utils
   printf "${CY}▸ Python-miljø${C0}\n"
   python3 -m venv .venv
   .venv/bin/pip install -q -r requirements.txt
-  printf "${CY}▸ Ollama + modell (${MODEL})${C0}\n"
+  printf "${CY}▸ Ollama${C0}\n"
   command -v ollama >/dev/null 2>&1 || curl -fsSL https://ollama.com/install.sh | sh
-  (curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 & sleep 3))
-  ollama list 2>/dev/null | grep -q "${MODEL%%:*}" || ollama pull "$MODEL"
+  pull_model
   printf "${CY}▸ Ordliste${C0}\n"
   if [ ! -f /usr/share/wordlists/rockyou.txt ] && [ -f /usr/share/wordlists/rockyou.txt.gz ]; then
     gunzip -k /usr/share/wordlists/rockyou.txt.gz; fi
