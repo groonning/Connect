@@ -135,8 +135,8 @@ class JobManager:
         try:
             # PHASE 1 — PMKID (clientless, most effective; no injection needed)
             if shutil.which("hcxdumptool"):
-                job.message = "angrep 1/2: PMKID (klientløst)…"
-                pf, got = self._pmkid_attack(job.bssid, channel, seconds=45)
+                job.message = "prøver aktiv PMKID (krever injection)…"
+                pf, got = self._pmkid_attack(job.bssid, channel, seconds=18)
                 if got:
                     job.handshake = True
                     job.cap_file = pf
@@ -144,7 +144,7 @@ class JobManager:
                     job.message = "PMKID fanget (klientløst) ✓"
                     return
             # PHASE 2 — 4-way handshake capture (+ targeted deauth if enabled)
-            job.message = "angrep 2/2: håndtrykk…"
+            job.message = "passiv fangst — koble en enhet til nettet nå"
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL)
             self._procs[f"{job.bssid}:capture"] = proc
