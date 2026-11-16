@@ -53,13 +53,19 @@ open_dashboard(){ local url="http://127.0.0.1:8777"
 update(){ need_root "$@"; ensure_link; logo
   printf "${MG}${B}  OPPDATERING${C0}\n\n"
   git config --global --add safe.directory "$(pwd)" 2>/dev/null
+  BEFORE=$(git rev-parse --short HEAD 2>/dev/null)
   printf "${CY}▸ Henter siste versjon fra GitHub${C0}\n"
-  git pull --ff-only origin main 2>&1 | sed 's/^/  /'
+  git fetch origin main 2>&1 | sed 's/^/  /'
+  git reset --hard origin/main 2>&1 | sed 's/^/  /'
+  AFTER=$(git rev-parse --short HEAD 2>/dev/null)
   printf "${CY}▸ Oppdaterer Python-avhengigheter${C0}\n"
   [ -x .venv/bin/pip ] && .venv/bin/pip install -q -r requirements.txt 2>/dev/null
-  chmod +x connect
-  ln -sf "$(pwd)/connect" /usr/local/bin/connect
-  printf "\n${GR}${B}✓ Oppdatert.${C0}\n"
+  ensure_link
+  if [ "$BEFORE" = "$AFTER" ]; then
+    printf "\n${GR}${B}✓ Allerede nyeste versjon ($AFTER).${C0}\n"
+  else
+    printf "\n${GR}${B}✓ Oppdatert: $BEFORE → $AFTER${C0}\n"
+  fi
   if pgrep -f wifi_agent.server >/dev/null; then
     printf "${YL}  Agenten kjører — for å bruke oppdateringen:${C0} ${B}sudo connect stop && sudo connect start${C0}\n\n"
   else printf "${GY}  Start med:${C0} ${B}sudo connect start${C0}\n\n"; fi; }
