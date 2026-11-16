@@ -24,7 +24,7 @@ sudo connect stop          # stopper alt, kort tilbake, nett tilbake, Ollama ned
 ```
 
 `connect start` tar nettet (monitor mode på ett kort); `connect step2` og `connect stop` gir det tilbake.
-`connect help` viser alle kommandoer, `connect status` viser hvilken fase du er i.
+`connect update` henter siste versjon fra GitHub. `connect help` viser alle kommandoer, `connect status` viser hvilken fase du er i.
 
 ## ⚠️ Authorisation — read first
 

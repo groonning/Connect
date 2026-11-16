@@ -46,6 +46,20 @@ open_dashboard(){ local url="http://127.0.0.1:8777"
       xdg-open "$url" >/dev/null 2>&1 || sensible-browser "$url" >/dev/null 2>&1
     fi ) & }
 
+update(){ need_root "$@"; logo
+  printf "${MG}${B}  OPPDATERING${C0}\n\n"
+  git config --global --add safe.directory "$(pwd)" 2>/dev/null
+  printf "${CY}▸ Henter siste versjon fra GitHub${C0}\n"
+  git pull --ff-only origin main 2>&1 | sed 's/^/  /'
+  printf "${CY}▸ Oppdaterer Python-avhengigheter${C0}\n"
+  [ -x .venv/bin/pip ] && .venv/bin/pip install -q -r requirements.txt 2>/dev/null
+  chmod +x connect
+  ln -sf "$(pwd)/connect" /usr/local/bin/connect
+  printf "\n${GR}${B}✓ Oppdatert.${C0}\n"
+  if pgrep -f wifi_agent.server >/dev/null; then
+    printf "${YL}  Agenten kjører — for å bruke oppdateringen:${C0} ${B}sudo connect stop && sudo connect start${C0}\n\n"
+  else printf "${GY}  Start med:${C0} ${B}sudo connect start${C0}\n\n"; fi; }
+
 install(){ need_root "$@"; logo
   printf "${MG}${B}  INSTALLASJON${C0}\n\n"
   printf "${CY}▸ Verktøy (aircrack-ng, wifite, tshark, nmap)${C0}\n"
@@ -137,6 +151,7 @@ help_page(){ logo
   cmd(){ printf "    ${GR}${B}%-34s${C0} ${GY}%s${C0}\n" "$1" "$2"; }
   seg "INSTALLASJON (første gang)"
   cmd "sudo connect install"            "Installerer alle verktøy + agenten"
+  cmd "sudo connect update"             "Henter siste versjon fra GitHub"
   seg "STEG 1 — WiFi (monitor mode, uten nett)"
   cmd "sudo connect step1"              "Ollama + monitor mode + dashbord"
   printf "    ${GY}Skann, fang håndtrykk, crack passord. Dashbord: ${BL}http://127.0.0.1:8777${C0}\n"
@@ -155,6 +170,7 @@ help_page(){ logo
 
 case "${1:-help}" in
   install|setup) install "$@";;
+  update|pull) update "$@";;
   step1|start) step1 "$@";;
   step2)       step2 "$@";;
   stop)        stop "$@";;
