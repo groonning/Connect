@@ -30,7 +30,7 @@ def create_app(iface: str, autostart: bool = True) -> Flask:
     app = Flask(__name__, static_folder=os.path.join(HERE, "static"))
     scope = Scope.load(CONFIG)
     scanner = LiveScanner(iface)
-    jobs = JobManager(scope, iface)
+    jobs = JobManager(scope, iface, scanner=scanner)
     audit = DeviceAudit(scope)
     analyst = Analyst(scope)
     planner = RuleBasedPlanner(scope)

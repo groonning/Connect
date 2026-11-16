@@ -37,10 +37,12 @@ class Job:
 
 
 class JobManager:
-    def __init__(self, scope: Scope, iface: str, out_dir: str = "captures"):
+    def __init__(self, scope: Scope, iface: str, out_dir: str = "captures",
+                 scanner=None):
         self.scope = scope
         self.iface = iface
         self.out_dir = out_dir
+        self.scanner = scanner
         self.jobs: dict[str, Job] = {}      # keyed "bssid:kind"
         self._procs: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
@@ -61,6 +63,14 @@ class JobManager:
         return job
 
     def _capture(self, job: Job, channel: str, deauth: bool):
+        # one radio: the channel-hopping scanner must pause so the capture can
+        # stay locked on the target's channel (otherwise the handshake is missed)
+        scanner_was_running = bool(self.scanner and self.scanner.running)
+        if scanner_was_running:
+            self.scanner.stop()
+        if channel:
+            subprocess.run(["iw", "dev", self.iface, "set", "channel", channel],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         d = os.path.join(self.out_dir, job.bssid.replace(":", ""))
         os.makedirs(d, exist_ok=True)
         prefix = os.path.join(d, "cap")
@@ -96,6 +106,8 @@ class JobManager:
             job.status = "failed"; job.message = str(e)
         finally:
             self._stop_proc(f"{job.bssid}:capture")
+            if scanner_was_running and self.scanner and not self.scanner.running:
+                self.scanner.start()
 
     def stop_capture(self, bssid: str):
         self._stop_proc(f"{bssid}:capture")
