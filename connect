@@ -36,6 +36,10 @@ ensure_server(){ if ! pgrep -f wifi_agent.server >/dev/null; then
       --why="wifi agent" "$PY" -m wifi_agent.server --iface "$1" \
       >"$RUN/server.log" 2>&1 & echo $! > "$RUN/server.pid"; sleep 2; fi; }
 
+ensure_link(){ chmod +x connect 2>/dev/null
+  [ "$(readlink -f /usr/local/bin/connect 2>/dev/null)" = "$(readlink -f ./connect)" ] \
+    || ln -sf "$(pwd)/connect" /usr/local/bin/connect 2>/dev/null; }
+
 open_dashboard(){ local url="http://127.0.0.1:8777"
   ( sleep 2
     if [ -n "${SUDO_USER:-}" ]; then
@@ -46,7 +50,7 @@ open_dashboard(){ local url="http://127.0.0.1:8777"
       xdg-open "$url" >/dev/null 2>&1 || sensible-browser "$url" >/dev/null 2>&1
     fi ) & }
 
-update(){ need_root "$@"; logo
+update(){ need_root "$@"; ensure_link; logo
   printf "${MG}${B}  OPPDATERING${C0}\n\n"
   git config --global --add safe.directory "$(pwd)" 2>/dev/null
   printf "${CY}▸ Henter siste versjon fra GitHub${C0}\n"
@@ -62,6 +66,7 @@ update(){ need_root "$@"; logo
 
 install(){ need_root "$@"; logo
   printf "${MG}${B}  INSTALLASJON${C0}\n\n"
+  ensure_link; printf "${CY}▸ Global 'connect'-kommando klar${C0}\n"
   printf "${CY}▸ Verktøy (aircrack-ng, wifite, tshark, nmap)${C0}\n"
   apt-get update -y
   apt-get install -y aircrack-ng wifite tshark nmap iw net-tools \
@@ -78,13 +83,12 @@ install(){ need_root "$@"; logo
     gunzip -k /usr/share/wordlists/rockyou.txt.gz; fi
   printf "${CY}▸ Konfig + global kommando${C0}\n"
   [ -f config/authorized_targets.yaml ] || cp config/authorized_targets.example.yaml config/authorized_targets.yaml
-  chmod +x connect
-  ln -sf "$(pwd)/connect" /usr/local/bin/connect
+  ensure_link
   printf "\n${GR}${B}✓ Alt installert.${C0}\n"
   printf "${GY}  Legg nettet ditt i ${C0}config/authorized_targets.yaml${GY}, så:${C0}\n"
   printf "  ${B}sudo connect start${C0}\n\n"; }
 
-step1(){ need_root "$@"; logo
+step1(){ need_root "$@"; ensure_link; logo
   printf "${MG}${B}  STEG 1 — WiFi (monitor mode)${C0}\n"
   printf "${YL}${B}⚠  Nettet forsvinner nå (kortet i monitor mode). ${C0}${YL}connect stop gir det tilbake.${C0}\n\n"
   ensure_ollama
@@ -100,7 +104,7 @@ step1(){ need_root "$@"; logo
   printf "${GY}  Skann, fang håndtrykk, crack passord. Når du har passordet:${C0}\n"
   printf "  ${B}sudo connect step2 \"SSID\" \"passord\"${C0}  ${GY}(for enhets- og CVE-skanning)${C0}\n\n"; }
 
-step2(){ need_root "$@"; logo
+step2(){ need_root "$@"; ensure_link; logo
   SSID="${2:-}"; PASS="${3:-}"
   if [ ! -f "$RUN/step1_done" ]; then
     printf "${RD}${B}✗ Steg 1 er ikke fullført.${C0} Fang håndtrykk og crack passordet i steg 1 først.\n"
