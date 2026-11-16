@@ -9,5 +9,5 @@ targets:
     bssid: "AA:BB:CC:DD:EE:FF"
     note: "my own home router"
 
-# LLM: the agent uses a local Ollama model. Default qwen2.5:7b.
+# LLM: the agent uses a local Ollama model. Default qwen3:30b-a3b.
 # Override:  OLLAMA_MODEL=qwen3:30b-a3b python3 -m wifi_agent.server --iface wlan0mon

@@ -8,7 +8,7 @@ set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 RUN=".run"; mkdir -p "$RUN"
 IFACE="${2:-wlan0}"
-MODEL="${OLLAMA_MODEL:-qwen2.5:7b}"
+MODEL="${OLLAMA_MODEL:-qwen3:30b-a3b}"
 PY=".venv/bin/python3"; [ -x "$PY" ] || PY="python3"
 
 C0='\033[0m'; B='\033[1m'; CY='\033[38;5;44m'; GR='\033[38;5;46m'
@@ -166,7 +166,7 @@ help_page(){ logo
   cmd "sudo connect stop"               "Stopper alt, kort tilbake, nett tilbake, Ollama ned"
   seg "ANNET"
   cmd "connect status"                  "Hvilken fase + hva kjører"
-  cmd "OLLAMA_MODEL=qwen3:30b-a3b sudo connect step1" "bedre modell, bruker RAM-en din"
+  cmd "OLLAMA_MODEL=qwen2.5:7b sudo connect step1" "lettere/raskere modell (standard er qwen3:30b-a3b)"
   seg "HVIS NETTET HENGER"
   cmd "sudo airmon-ng stop wlan0mon"      "kort tilbake til vanlig modus"
   cmd "sudo systemctl restart NetworkManager" "starter nettet på nytt"

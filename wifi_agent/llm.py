@@ -1,7 +1,7 @@
 """Local LLM via Ollama (http://localhost:11434). Pure stdlib, no extra deps.
 
 The agent runs fully offline on the Kali box. Model is configurable:
-    OLLAMA_MODEL (default qwen2.5:7b)   OLLAMA_URL (default localhost:11434)
+    OLLAMA_MODEL (default qwen3:30b-a3b)   OLLAMA_URL (default localhost:11434)
 """
 from __future__ import annotations
 import json
@@ -9,7 +9,7 @@ import os
 import urllib.request
 
 URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:30b-a3b")
 
 
 class OllamaError(Exception):
