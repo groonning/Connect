@@ -93,6 +93,9 @@ class JobManager:
             while time.time() < deadline and proc.poll() is None:
                 time.sleep(5)
                 cap = self._latest_cap(d)
+                if cap:
+                    n = self._eapol_count(cap, job.bssid)
+                    job.message = f"fanger… EAPOL-rammer: {n}/4 (koble en enhet til nettet)"
                 if cap and self._has_handshake(cap, job.bssid):
                     job.handshake = True
                     job.cap_file = cap
@@ -190,7 +193,22 @@ class JobManager:
         return caps[0] if caps else None
 
     @staticmethod
+    def _eapol_count(cap: str, bssid: str) -> int:
+        """Count EAPOL (4-way handshake) frames for this AP via tshark."""
+        try:
+            out = subprocess.run(
+                ["tshark", "-r", cap, "-Y",
+                 f"eapol && wlan.addr == {bssid}", "-T", "fields",
+                 "-e", "frame.number"],
+                capture_output=True, text=True, timeout=30).stdout
+            return len([x for x in out.splitlines() if x.strip()])
+        except Exception:
+            return 0
+
+    @staticmethod
     def _has_handshake(cap: str, bssid: str) -> bool:
+        if JobManager._eapol_count(cap, bssid) >= 4:
+            return True
         try:
             out = subprocess.run(["aircrack-ng", cap], capture_output=True,
                                  text=True, timeout=30).stdout
