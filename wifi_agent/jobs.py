@@ -32,6 +32,7 @@ class Job:
     rate: float = 0.0          # keys/sec
     eta: int = 0               # seconds remaining
     progress: float = 0.0      # 0..1
+    stop: bool = False         # set by stop_capture to end passive capture
 
     def dict(self):
         return asdict(self)
@@ -143,30 +144,35 @@ class JobManager:
                     job.status = "handshake"
                     job.message = "PMKID fanget (klientløst) ✓"
                     return
-            # PHASE 2 — 4-way handshake capture (+ targeted deauth if enabled)
+            # PHASE 2 — passive 4-way handshake capture. Runs OPEN-ENDED: until
+            # a handshake/PMKID is captured OR the user presses stop. No timeout.
             job.message = "passiv fangst — koble en enhet til nettet nå"
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL)
-            self._procs[f"{job.bssid}:capture"] = proc
-            time.sleep(3)
-            deadline = time.time() + 240
-            round_no = 0
-            while time.time() < deadline and proc.poll() is None:
-                # targeted deauth each round (to the associated client if known —
-                # far more effective than a broadcast, when the card can inject)
+            start = time.time()
+            while not job.stop and not job.handshake:
+                # (re)start airodump if it isn't running (keeps capture alive even
+                # if the tool exits on its own)
+                proc = self._procs.get(f"{job.bssid}:capture")
+                if proc is None or proc.poll() is not None:
+                    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL)
+                    self._procs[f"{job.bssid}:capture"] = proc
+                    time.sleep(3)
                 if deauth:
                     inject_note = self._deauth(job.bssid, clients)
                 time.sleep(5)
+                if job.stop:
+                    break
                 cap = self._latest_cap(d)
+                mins = int((time.time() - start) // 60)
+                secs = int((time.time() - start) % 60)
                 if cap:
                     n = self._eapol_count(cap, job.bssid)
                     pmkid = self._has_pmkid(cap)
-                    seen = len(clients)
-                    base = f"fanger… EAPOL: {n}/4"
+                    base = f"fanger ({mins}m{secs:02d}s)… EAPOL: {n}/4"
                     if pmkid:
                         base += " · PMKID ✓"
-                    if seen == 0:
-                        base += " · ingen klient sett — koble telefonen til nettet"
+                    if not clients:
+                        base += " · koble en enhet til nettet nå"
                     if inject_note:
                         base += f" · {inject_note}"
                     job.message = base
@@ -177,15 +183,11 @@ class JobManager:
                         job.message = ("PMKID fanget" if pmkid else "håndtrykk fanget") + \
                                       f" (EAPOL {n}/4)"
                         break
-                round_no += 1
-            if not job.handshake:
+                else:
+                    job.message = f"fanger ({mins}m{secs:02d}s)… venter på rammer — koble en enhet til nettet"
+            if not job.handshake and not job.status == "handshake":
                 job.status = "done"
-                why = "ingen håndtrykk"
-                if not clients:
-                    why += " — ingen enhet koblet til nettet mens vi fanget"
-                elif inject_note and "injection" in inject_note.lower():
-                    why += " — deauth injiseres ikke på dette kortet (MT7921-begrensning); prøv passiv fangst eller USB-adapter"
-                job.message = "stoppet: " + why
+                job.message = "stoppet av bruker" if job.stop else job.message
         except Exception as e:
             job.status = "failed"; job.message = str(e)
         finally:
@@ -232,10 +234,12 @@ class JobManager:
             return False
 
     def stop_capture(self, bssid: str):
-        self._stop_proc(f"{bssid}:capture")
         j = self.jobs.get(f"{bssid}:capture")
+        if j:
+            j.stop = True
+        self._stop_proc(f"{bssid}:capture")
         if j and j.status == "running":
-            j.status = "done"; j.message = "stopped by user"
+            j.status = "done"; j.message = "stoppet av bruker"
 
     # ---- crack ---------------------------------------------------------
     def start_crack(self, bssid: str, wordlist: str) -> Job:
