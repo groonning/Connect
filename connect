@@ -36,12 +36,22 @@ ensure_server(){ if ! pgrep -f wifi_agent.server >/dev/null; then
       --why="wifi agent" "$PY" -m wifi_agent.server --iface "$1" \
       >"$RUN/server.log" 2>&1 & echo $! > "$RUN/server.pid"; sleep 2; fi; }
 
+open_dashboard(){ local url="http://127.0.0.1:8777"
+  ( sleep 2
+    if [ -n "${SUDO_USER:-}" ]; then
+      RID="/run/user/$(id -u "$SUDO_USER" 2>/dev/null)"
+      sudo -u "$SUDO_USER" env DISPLAY="${DISPLAY:-:0}" XDG_RUNTIME_DIR="$RID" xdg-open "$url" >/dev/null 2>&1 \
+        || sudo -u "$SUDO_USER" env DISPLAY="${DISPLAY:-:0}" sensible-browser "$url" >/dev/null 2>&1
+    else
+      xdg-open "$url" >/dev/null 2>&1 || sensible-browser "$url" >/dev/null 2>&1
+    fi ) & }
+
 install(){ need_root "$@"; logo
   printf "${MG}${B}  INSTALLASJON${C0}\n\n"
   printf "${CY}▸ Verktøy (aircrack-ng, wifite, tshark, nmap)${C0}\n"
   apt-get update -y
   apt-get install -y aircrack-ng wifite tshark nmap iw net-tools \
-                     python3-venv python3-pip curl
+                     python3-venv python3-pip curl xdg-utils
   printf "${CY}▸ Python-miljø${C0}\n"
   python3 -m venv .venv
   .venv/bin/pip install -q -r requirements.txt
@@ -71,6 +81,7 @@ step1(){ need_root "$@"; logo
   MON=$(iw dev 2>/dev/null | awk '/Interface/{print $2}' | grep -m1 mon); MON="${MON:-${IFACE}mon}"
   echo "$MON" > "$RUN/iface"; printf "  interface: ${B}%s${C0}\n" "$MON"
   ensure_server "$MON"; echo 1 > "$RUN/phase"
+  open_dashboard
   printf "\n${GR}${B}✓ Steg 1 oppe.${C0}  Dashbord: ${B}${BL}http://127.0.0.1:8777${C0}\n"
   printf "${GY}  Skann, fang håndtrykk, crack passord. Når du har passordet:${C0}\n"
   printf "  ${B}sudo connect step2 \"SSID\" \"passord\"${C0}  ${GY}(for enhets- og CVE-skanning)${C0}\n\n"; }
