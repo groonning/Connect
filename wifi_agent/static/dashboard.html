@@ -1,0 +1,292 @@
+<!doctype html><html lang="no"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WiFi Security Dashboard</title>
+<style>
+ :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;
+       --acc:#2f81f7;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--teal:#39c5cf;}
+ *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);
+   font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+ header{display:flex;align-items:center;gap:14px;padding:12px 20px;
+   border-bottom:1px solid var(--line);background:var(--panel)}
+ header h1{font-size:16px;margin:0;font-weight:600}
+ .dot{width:9px;height:9px;border-radius:50%;background:var(--mut);display:inline-block}
+ .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 12px;
+   cursor:pointer;font-size:13px}
+ button.ghost{background:#21262d;color:var(--fg);border:1px solid var(--line)}
+ button.on{background:var(--acc)} button.danger{background:#30181a;color:var(--bad);border:1px solid var(--bad)}
+ button:hover{filter:brightness(1.1)}
+ .tools{display:flex;gap:8px;flex-wrap:wrap;padding:8px 20px;border-bottom:1px solid var(--line);
+   background:#10151c;font-size:12px}
+ .tool{display:flex;align-items:center;gap:5px;color:var(--mut)}
+ .legal{font-size:12px;color:var(--warn);padding:8px 20px;background:#1c1708;border-bottom:1px solid #3a2e0a}
+ .wrap{padding:20px;display:grid;gap:18px}
+ .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+ .panel h2{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)}
+ table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:7px 8px;
+   border-bottom:1px solid var(--line);font-size:13px} th{color:var(--mut);font-weight:500}
+ tr:hover td{background:#1c2128}
+ .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+ .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px}
+ .tag{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+ .tag.ok{color:var(--ok);border-color:var(--ok)} .tag.warn{color:var(--warn);border-color:var(--warn)}
+ .tag.bad{color:var(--bad);border-color:var(--bad)} .tag.teal{color:var(--teal);border-color:var(--teal)}
+ .card{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px}
+ .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+ .pw{font-family:ui-monospace,monospace;color:var(--ok);font-size:15px;font-weight:600}
+ .muted{color:var(--mut);font-size:12px} .mt{margin-top:8px}
+ .filters{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+ input[type=text]{background:#0d1117;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px}
+ .chip{background:#1c2128;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
+ td.st-cleartext{color:var(--warn)} td.st-decrypted{color:var(--teal)} td.st-encrypted{color:var(--mut)}
+ tr.sel td{background:#172029}
+ .sev-high{color:var(--bad)} .sev-medium{color:var(--warn)} .sev-low{color:var(--teal)} .sev-info{color:var(--mut)}
+ .clickable{cursor:pointer}
+ .steps{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+ .step{border:1px solid var(--line);border-radius:8px;padding:12px}
+ .step.active{border-color:var(--acc);background:#11182400}
+ .step .n{font-size:11px;letter-spacing:.5px;color:var(--mut)}
+ .step.active .n{color:var(--acc)}
+ .cmd{font-family:ui-monospace,monospace;font-size:12px;background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:6px;color:#e6edf3}
+</style></head><body>
+<header>
+ <h1>📡 WiFi Security Dashboard</h1>
+ <span class="dot" id="scanDot"></span><span class="muted" id="ifaceLbl">—</span>
+ <span class="tag teal" id="decLbl" style="display:none">dekryptering aktiv</span>
+ <span style="flex:1"></span>
+ <button id="autoBtn" class="ghost" onclick="toggleAuto()">Auto-pilot: av</button>
+ <label class="muted" style="font-size:12px"><input type="checkbox" id="autoDeauth"> deauth</label>
+ <button id="scanBtn" onclick="toggleScan()">Start skanning</button>
+</header>
+<div class="tools" id="toolStrip"></div>
+<div class="legal">Kun nett du eier eller har tillatelse til å teste. Å legge et nett til som mål bekrefter at du har lov.</div>
+
+<div id="nextStep" style="padding:9px 20px;background:#0e1b2e;border-bottom:1px solid #1f3b5c;font-size:13px;color:#e6edf3;display:flex;align-items:center;gap:8px"></div>
+<div class="wrap">
+ <div class="panel" id="phaseBanner"></div>
+ <div class="panel"><h2>Nettverk i nærheten</h2>
+  <table id="apTable"><thead><tr><th>SSID</th><th>BSSID</th><th>Kanal</th>
+   <th>Kryptering</th><th>Signal</th><th>Enheter</th><th></th></tr></thead><tbody></tbody></table>
+  <p class="muted" id="apEmpty">Start skanning for å se nettverk.</p></div>
+
+ <div class="cols">
+  <div class="panel"><h2>🔑 WiFi-passord</h2><div id="colPw"></div>
+   <p class="muted" id="pwEmpty">Legg til et mål for å teste.</p></div>
+  <div class="panel"><h2>📶 Overvåking</h2><div id="colMon"></div>
+   <p class="muted" id="monEmpty">Ingen mål valgt.</p></div>
+  <div class="panel"><h2>💻 Enheter på WiFi</h2>
+   <p class="muted" id="devHint">Klikk en enhet for å isolere trafikken og se svakheter.</p>
+   <div id="colDev"></div></div>
+ </div>
+
+ <div class="panel"><h2>🌐 Trafikk <span id="trafScope" class="muted"></span></h2>
+  <div class="filters">
+   <button class="ghost on" id="f-all" onclick="setOnly('all')">Alle</button>
+   <button class="ghost" id="f-cleartext" onclick="setOnly('cleartext')">Kun ukryptert</button>
+   <button class="ghost" id="f-decrypted" onclick="setOnly('decrypted')">Kun dekryptert</button>
+   <input type="text" id="protoF" placeholder="protokoll (DNS, HTTP…)" oninput="refreshTraffic()" style="width:150px">
+   <span id="isoChip"></span>
+  </div>
+  <table id="trafTable"><thead><tr><th>Tid</th><th>Fra</th><th>Til</th>
+   <th>Protokoll</th><th>Info</th><th>Status</th></tr></thead><tbody></tbody></table>
+  <p class="muted" id="trafEmpty">Ingen pakker ennå. Start skanning og velg et mål.</p></div>
+
+ <div class="panel"><h2>⚠️ Svakheter <span id="sevScope" class="muted"></span></h2>
+  <div id="colSev"></div>
+  <p class="muted" id="sevEmpty">Klikk en enhet i «Enheter på WiFi» for å vurdere den.</p></div>
+
+ <div class="panel"><h2>📋 Full sårbarhetsrapport <span id="repModel" class="muted"></span></h2>
+  <div class="filters">
+   <button id="repBtn" onclick="genReport()">Generer rapport</button>
+   <button class="ghost" id="expMd" onclick="exportReport('md')" disabled>Eksporter .md</button>
+   <button class="ghost" id="expJson" onclick="exportReport('json')" disabled>Eksporter .json</button>
+   <span class="muted" style="font-size:12px">Lagres ikke før du eksporterer.</span>
+  </div>
+  <div id="repFindings" class="mt"></div>
+  <div id="repOut" class="mt" style="white-space:pre-wrap;font-size:13px;line-height:1.6"></div></div>
+</div>
+
+<script>
+let STATE={aps:[],clients:[],targets:[],jobs:{},running:false,iface:"—",decrypting:0};
+let ONLY="all", SEL="", MACIP={};
+
+async function api(p,b){const o=b?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}:{};return (await fetch(p,o)).json();}
+function isTarget(x){return STATE.targets.some(t=>t.bssid.toUpperCase()===x.toUpperCase());}
+function job(b,k){return STATE.jobs[b+":"+k];}
+function fmtEta(s){s=Math.max(0,Math.round(s||0));if(s<60)return s+"s";if(s<3600)return Math.floor(s/60)+"m "+(s%60)+"s";return Math.floor(s/3600)+"t "+Math.floor((s%3600)/60)+"m";}
+function apFor(b){return STATE.aps.find(a=>a.bssid.toUpperCase()===(b||"").toUpperCase())||{};}
+
+async function toggleScan(){await api(STATE.running?"/api/scan/stop":"/api/scan/start",{});refresh();}
+async function toggleAuto(){const on=!STATE.auto;const d=document.getElementById("autoDeauth").checked;await api("/api/auto",{on:on,deauth:d});refresh();}
+async function addTarget(b,s){await api("/api/targets/add",{bssid:b,ssid:s});refresh();}
+async function removeTarget(b){await api("/api/targets/remove",{bssid:b});refresh();}
+async function capture(b,ch,d){await api("/api/capture/start",{bssid:b,channel:ch,deauth:d});refresh();}
+async function stopCapture(b){await api("/api/capture/stop",{bssid:b});refresh();}
+async function crack(b){await api("/api/crack/start",{bssid:b});refresh();}
+
+function setOnly(o){ONLY=o;["all","cleartext","decrypted"].forEach(x=>
+  document.getElementById("f-"+x).classList.toggle("on",x===o));refreshTraffic();}
+function selectDevice(mac){SEL=mac;renderDevices();refreshTraffic();loadAudit(false);}
+function clearIso(){SEL="";renderDevices();refreshTraffic();document.getElementById("colSev").innerHTML="";
+  document.getElementById("sevEmpty").style.display="block";document.getElementById("sevScope").textContent="";}
+
+function encTag(e){e=(e||"").toUpperCase();
+  if(e.includes("WEP")||e.includes("OPN"))return '<span class="tag bad">'+e+'</span>';
+  if(e.includes("WPA3"))return '<span class="tag ok">'+e+'</span>';
+  return '<span class="tag">'+(e||"?")+'</span>';}
+
+function renderTools(t){document.getElementById("toolStrip").innerHTML=t.map(x=>
+  '<span class="tool"><span class="dot'+(x.ok?" on":"")+'"></span>'+x.tool+
+  (x.ok?"":" <span style=color:#f85149>mangler</span>")+'</span>').join("");}
+
+function renderAPs(){const tb=document.querySelector("#apTable tbody");tb.innerHTML="";
+ const aps=[...STATE.aps].sort((a,b)=>(parseInt(b.power)||-99)-(parseInt(a.power)||-99));
+ document.getElementById("apEmpty").style.display=aps.length?"none":"block";
+ for(const ap of aps){const tr=document.createElement("tr");
+  const btn=isTarget(ap.bssid)?'<span class="tag ok">mål ✓</span>':
+   '<button class="ghost" onclick="addTarget(\''+ap.bssid+'\',\''+(ap.ssid||"").replace(/'/g,"")+'\')">+ mål</button>';
+  tr.innerHTML='<td>'+(ap.ssid||"<em class=muted>skjult</em>")+'</td><td class="mono">'+ap.bssid+
+   '</td><td>'+ap.channel+'</td><td>'+encTag(ap.encryption)+'</td><td>'+ap.power+'</td><td>'+ap.clients+'</td><td>'+btn+'</td>';
+  tb.appendChild(tr);}}
+
+function renderCols(){const pw=document.getElementById("colPw"),mon=document.getElementById("colMon");
+ pw.innerHTML="";mon.innerHTML="";
+ document.getElementById("pwEmpty").style.display=STATE.targets.length?"none":"block";
+ document.getElementById("monEmpty").style.display=STATE.targets.length?"none":"block";
+ for(const t of STATE.targets){const ap=apFor(t.bssid),cj=job(t.bssid,"capture"),kj=job(t.bssid,"crack");
+  const hs=cj&&cj.handshake;let h='<div class="row"><b>'+(t.ssid||t.bssid)+'</b>'+
+   '<button class="danger" onclick="removeTarget(\''+t.bssid+'\')">fjern</button></div>'+
+   '<div class="mono muted">'+t.bssid+'</div>'+
+   '<div class="mt row"><span class="muted">håndtrykk</span>'+
+   (hs?'<span class="tag ok">fanget ✓</span>':'<span class="tag warn">mangler</span>')+'</div><div class="mt">';
+  if(cj&&cj.status==="running")h+='<button class="danger" onclick="stopCapture(\''+t.bssid+'\')">stopp fangst</button>';
+  else h+='<button onclick="capture(\''+t.bssid+'\',\''+(ap.channel||"")+'\',false)">fang (passiv)</button> '+
+   '<button class="ghost" onclick="capture(\''+t.bssid+'\',\''+(ap.channel||"")+'\',true)">fang + deauth</button>';
+  h+='</div>';
+  if(hs)h+='<div class="mt"><button onclick="crack(\''+t.bssid+'\')">cracke mot ordliste</button></div>';
+  if(kj){
+   if(kj.password)h+='<div class="mt">Passord: <span class="pw">'+kj.password+'</span></div>';
+   else if(kj.status==="running"){const pct=Math.round((kj.progress||0)*100);
+    h+='<div class="mt"><div class="row"><span class="muted">cracker…</span><span class="muted">'+pct+'% · '+fmtEta(kj.eta)+' igjen</span></div>'+
+     '<div style="height:6px;background:#0d1117;border:1px solid #30363d;border-radius:4px;overflow:hidden;margin-top:4px"><div style="height:100%;width:'+pct+'%;background:#2f81f7"></div></div>'+
+     '<div class="muted mt" style="font-size:11px">'+kj.tested.toLocaleString()+' / '+(kj.total||0).toLocaleString()+' nøkler · '+Math.round(kj.rate).toLocaleString()+' k/s</div></div>';}
+   else h+='<div class="mt muted">crack: '+kj.status+' — '+kj.message+'</div>';}
+  if(cj&&cj.message)h+='<div class="muted mt">'+cj.message+'</div>';
+  const c=document.createElement("div");c.className="card";c.innerHTML=h;pw.appendChild(c);
+  const n=STATE.clients.filter(x=>x.bssid.toUpperCase()===t.bssid.toUpperCase()).length;
+  const m=document.createElement("div");m.className="card";
+  m.innerHTML='<b>'+(t.ssid||t.bssid)+'</b>'+
+   '<div class="row mt"><span class="muted">signal</span><span>'+(ap.power||"—")+' dBm</span></div>'+
+   '<div class="row"><span class="muted">kryptering</span><span>'+encTag(ap.encryption)+'</span></div>'+
+   '<div class="row"><span class="muted">kanal</span><span>'+(ap.channel||"—")+'</span></div>'+
+   '<div class="row"><span class="muted">enheter</span><span>'+n+'</span></div>'+
+   '<div class="row"><span class="muted">håndtrykk</span><span>'+(hs?'✓':'—')+'</span></div>';
+  mon.appendChild(m);}}
+
+function renderDevices(){const out=document.getElementById("colDev");
+ const cl=STATE.clients.filter(c=>c.bssid&&c.bssid!=="(not associated)");
+ document.getElementById("devHint").style.display=cl.length?"none":"block";
+ if(!cl.length){out.innerHTML="";return;}
+ out.innerHTML='<table><thead><tr><th>Enhet</th><th>Nett</th><th>Signal</th><th>IP</th></tr></thead><tbody>'+
+  cl.map(c=>{const ap=apFor(c.bssid);const ip=MACIP[c.mac.toUpperCase()]||"—";
+   return '<tr class="clickable'+(c.mac===SEL?' sel':'')+'" onclick="selectDevice(\''+c.mac+'\')">'+
+    '<td class="mono">'+c.mac+'</td><td>'+(ap.ssid||c.bssid)+'</td><td>'+c.power+'</td><td class="mono">'+ip+'</td></tr>';}).join("")+
+  '</tbody></table>';}
+
+async function refreshTraffic(){
+ const proto=document.getElementById("protoF").value;
+ const q=new URLSearchParams({only:ONLY,device:SEL,proto:proto});
+ const d=await api("/api/traffic?"+q.toString());
+ MACIP=Object.assign(MACIP,d.mac_ip||{});
+ document.getElementById("trafScope").textContent=SEL?("· isolert: "+SEL):"";
+ document.getElementById("isoChip").innerHTML=SEL?'<span class="chip" onclick="clearIso()">isolert: '+SEL+' ✕</span>':"";
+ const tb=document.querySelector("#trafTable tbody");tb.innerHTML="";
+ document.getElementById("trafEmpty").style.display=d.packets.length?"none":"block";
+ for(const p of d.packets){const tr=document.createElement("tr");
+  const lbl={cleartext:"ukryptert",decrypted:"dekryptert",encrypted:"kryptert"}[p.state];
+  tr.innerHTML='<td class="mono">'+p.time+'</td><td class="mono">'+(p.src||p.sa)+'</td>'+
+   '<td class="mono">'+(p.dst||p.da)+'</td><td>'+p.proto+'</td><td class="muted">'+p.info+'</td>'+
+   '<td class="st-'+p.state+'">'+lbl+'</td>';tb.appendChild(tr);}}
+
+async function loadAudit(active){if(!SEL)return;
+ const c=STATE.clients.find(x=>x.mac===SEL)||{};const ap=apFor(c.bssid);
+ const ip=MACIP[SEL.toUpperCase()]||"";
+ const body={mac:SEL,encryption:ap.encryption||"",bssid:c.bssid||"",ip:ip,active:active};
+ const r=await api("/api/devices/audit",body);
+ document.getElementById("sevEmpty").style.display="none";
+ document.getElementById("sevScope").textContent="· "+SEL+(ip?(" ("+ip+")"):"");
+ const findings=(r.findings||[]);
+ document.getElementById("colSev").innerHTML=
+  findings.map(f=>'<div class="card"><div class="row"><b class="sev-'+f.severity+'">'+f.title+'</b>'+
+   '<span class="tag '+({high:"bad",medium:"warn",low:"teal",info:""}[f.severity])+'">'+f.severity+'</span></div>'+
+   (f.detail?'<div class="muted mt">'+f.detail+'</div>':'')+'</div>').join("")+
+  '<button class="ghost" onclick="loadAudit(true)">kjør aktiv nmap-skanning'+(MACIP[SEL.toUpperCase()]?"":" (trenger IP)")+'</button>';}
+
+
+let LAST=null;
+function sevOrder(s){return {high:0,medium:1,low:2,info:3}[s]??9;}
+async function genReport(){const b=document.getElementById("repBtn"),o=document.getElementById("repOut"),fo=document.getElementById("repFindings");
+ b.textContent="Genererer…";b.disabled=true;
+ const r=await api("/api/report",{});b.disabled=false;b.textContent="Generer rapport";
+ LAST=r;const f=(r.findings||[]).sort((a,b)=>sevOrder(a.severity)-sevOrder(b.severity));
+ fo.innerHTML=f.length?('<table><thead><tr><th>Alvorlighet</th><th>Funn</th><th>Enhet/nett</th><th>Detalj</th></tr></thead><tbody>'+
+   f.map(x=>'<tr><td class="sev-'+x.severity+'">'+x.severity+'</td><td>'+x.title+'</td>'+
+   '<td class="mono">'+(x.mac||x.ssid||x.bssid||"")+'</td><td class="muted">'+(x.detail||x.recommendation||"")+'</td></tr>').join("")+
+   '</tbody></table>'):'<p class="muted">Ingen svakheter registrert ennå. Skann nett og vurder enheter først.</p>';
+ document.getElementById("repModel").textContent=r.model?("· "+r.model):"";
+ if(r.ok&&r.report)o.textContent=r.report;
+ else o.innerHTML='<span class="muted">Fortellende rapport krever at Ollama kjører'+(r.error?(" ("+r.error+")"):"")+'. Funnlista over er klar til eksport.</span>';
+ document.getElementById("expMd").disabled=false;document.getElementById("expJson").disabled=false;}
+
+function dl(name,text,type){const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([text],{type:type}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
+function exportReport(fmt){if(!LAST)return;const ts=new Date().toISOString().replace(/[:.]/g,"-").slice(0,19);
+ if(fmt==="json"){dl("wifi-rapport_"+ts+".json",JSON.stringify(LAST,null,2),"application/json");return;}
+ let md="# WiFi sårbarhetsrapport\n\n_"+new Date().toLocaleString("no-NO")+"_\n\n## Funn\n\n";
+ (LAST.findings||[]).forEach(x=>{md+="- **["+x.severity.toUpperCase()+"] "+x.title+"** — "+(x.mac||x.ssid||x.bssid||"")+
+   (x.detail?(": "+x.detail):"")+"\n";});
+ if(LAST.report)md+="\n## Analyse\n\n"+LAST.report+"\n";
+ dl("wifi-rapport_"+ts+".md",md,"text/markdown");}
+
+async function refresh(){STATE=await api("/api/state");
+ document.getElementById("scanDot").className="dot"+(STATE.running?" on":"");
+ document.getElementById("scanBtn").textContent=STATE.running?"Stopp skanning":"Start skanning";
+ document.getElementById("ifaceLbl").textContent=STATE.iface;
+ document.getElementById("decLbl").style.display=STATE.decrypting?"inline-block":"none";
+ const ab=document.getElementById("autoBtn");ab.textContent="Auto-pilot: "+(STATE.auto?"på":"av");ab.className=STATE.auto?"on":"ghost";
+ renderPhase();renderAPs();renderCols();renderDevices();renderNext();}
+function renderNext(){const ph=String(STATE.phase||"1");const el=document.getElementById("nextStep");
+ let txt="",cmd="";
+ const tgts=STATE.targets||[];
+ const cracked=tgts.find(t=>{const j=job(t.bssid,"crack");return j&&j.password;});
+ if(ph==="2"){txt="Nett aktivt. Kjør aktiv nmap-skanning i svakhet-spalten, så «Generer rapport».";}
+ else if(cracked){txt="Steg 1 ferdig — passord funnet. Gå videre til enhetsanalyse:";
+   cmd='sudo connect step2 "'+(cracked.ssid||"SSID")+'" "'+(job(cracked.bssid,"crack").password)+'"';}
+ else if(!STATE.running){txt="Start skanning for å se nettene rundt deg (knappen oppe til høyre).";}
+ else if(!tgts.length){txt="Velg nettet ditt i lista og trykk «+ mål» for å legge det til som mål.";}
+ else {const t=tgts[0];const cj=job(t.bssid,"capture"),kj=job(t.bssid,"crack");
+   if(kj&&kj.status==="running")txt="Cracker nå — vent på passordet (framdrift i passord-spalten).";
+   else if(cj&&cj.handshake)txt="Håndtrykk fanget. Trykk «cracke mot ordliste» i passord-spalten.";
+   else if(cj&&cj.status==="running")txt="Venter på håndtrykk… tar det tid, prøv «fang + deauth».";
+   else txt="Trykk «fang (passiv)» på målet ditt — eller slå på Auto-pilot så gjør agenten det selv.";}
+ el.innerHTML='<span style="color:#58a6ff;font-weight:500">\u2192 Neste steg:</span> '+txt+
+   (cmd?' <code style="font-family:ui-monospace,monospace;background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:2px 7px">'+cmd+'</code>':"");}
+function renderPhase(){const ph=String(STATE.phase||"1");
+ const a1=ph==="1"?" active":"",a2=ph==="2"?" active":"";
+ const done=!!STATE.step1_complete;
+ const step2head=done?"STEG 2 · Enhetsanalyse (nett aktivt)":"\uD83D\uDD12 STEG 2 · låst til steg 1 er fullført";
+ document.getElementById("phaseBanner").innerHTML=
+  '<h2 style="margin:0 0 10px">Arbeidsflyt · nå: steg '+ph+'</h2>'+
+  '<div class="steps">'+
+  '<div class="step'+a1+'"><div class="n">STEG 1 · WiFi (monitor mode, uten nett)</div>'+
+   '<div class="mt">Skann nett, fang håndtrykk, crack passord.</div>'+
+   '<div class="cmd">sudo connect step1</div></div>'+
+  '<div class="step'+a2+(done?"":" ")+'" style="opacity:'+(done?1:.5)+'"><div class="n">'+step2head+'</div>'+
+   '<div class="mt">'+(done?"Kobler på nettet. Sårbarhetsskann + CVE-oppslag (trenger internett).":"Fang håndtrykk og crack passordet i steg 1 først.")+'</div>'+
+   '<div class="cmd">sudo connect step2 "SSID" "passord"</div></div>'+
+  '</div>'+(ph==="1"?'<p class="muted mt">Aktiv enhets-skanning er av i steg 1 (ingen nett). Kjør steg 2 når passordet er knekt.</p>':'<p class="muted mt">Nett aktivt — kjør aktiv nmap-skanning i svakhet-spalten nå.</p>');}
+
+async function init(){renderTools((await api("/api/tools")).tools);refresh();refreshTraffic();
+ setInterval(refresh,3000);setInterval(refreshTraffic,4000);}
+init();
+</script></body></html>

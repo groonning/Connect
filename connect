@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# connect — two-phase lifecycle for the WiFi security agent.
+#   connect step1 [iface]        PHASE 1: monitor mode, capture + crack (NO internet)
+#   connect step2 [SSID] [PASS]  PHASE 2: normal mode, network ON, device + CVE scanning
+#   connect stop                 tear everything down, restore network, stop Ollama
+#   connect status / help
+set -uo pipefail
+cd "$(dirname "$(readlink -f "$0")")"
+RUN=".run"; mkdir -p "$RUN"
+IFACE="${2:-wlan0}"
+MODEL="${OLLAMA_MODEL:-qwen2.5:7b}"
+PY=".venv/bin/python3"; [ -x "$PY" ] || PY="python3"
+
+C0='\033[0m'; B='\033[1m'; CY='\033[38;5;44m'; GR='\033[38;5;46m'
+MG='\033[38;5;201m'; YL='\033[38;5;220m'; RD='\033[38;5;196m'; GY='\033[38;5;245m'; BL='\033[38;5;39m'
+
+logo(){ printf "${CY}${B}"; cat <<'LOGO'
+   ╔═╗ ╔═╗ ╔╗╔ ╔╗╔ ╔═╗ ╔═╗ ╔╦╗
+   ║   ║ ║ ║║║ ║║║ ║╣  ║    ║
+   ╚═╝ ╚═╝ ╝╚╝ ╝╚╝ ╚═╝ ╚═╝  ╩
+LOGO
+printf "${C0}${GY}      ⚡ wifi security agent · authorised testing only${C0}\n\n"; }
+
+need_root(){ if [ "$(id -u)" -ne 0 ]; then
+  printf "${YL}Trenger root — starter på nytt med sudo…${C0}\n"; exec sudo -E "$0" "$@"; fi; }
+
+ensure_ollama(){ printf "${CY}▸ Ollama${C0}\n"
+  if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+    nohup ollama serve >"$RUN/ollama.log" 2>&1 & echo $! > "$RUN/ollama.pid"
+    touch "$RUN/ollama.started"; sleep 2; printf "  startet ollama serve\n"
+  else printf "  kjører allerede\n"; fi
+  ollama list 2>/dev/null | grep -q "${MODEL%%:*}" || { printf "  henter ${MODEL}…\n"; ollama pull "$MODEL"; }; }
+
+ensure_server(){ if ! pgrep -f wifi_agent.server >/dev/null; then
+    systemd-inhibit --what=sleep:idle:handle-lid-switch --who=connect \
+      --why="wifi agent" "$PY" -m wifi_agent.server --iface "$1" \
+      >"$RUN/server.log" 2>&1 & echo $! > "$RUN/server.pid"; sleep 2; fi; }
+
+install(){ need_root "$@"; logo
+  printf "${MG}${B}  INSTALLASJON${C0}\n\n"
+  printf "${CY}▸ Verktøy (aircrack-ng, wifite, tshark, nmap)${C0}\n"
+  apt-get update -y
+  apt-get install -y aircrack-ng wifite tshark nmap iw net-tools \
+                     python3-venv python3-pip curl
+  printf "${CY}▸ Python-miljø${C0}\n"
+  python3 -m venv .venv
+  .venv/bin/pip install -q -r requirements.txt
+  printf "${CY}▸ Ollama + modell (${MODEL})${C0}\n"
+  command -v ollama >/dev/null 2>&1 || curl -fsSL https://ollama.com/install.sh | sh
+  (curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 & sleep 3))
+  ollama list 2>/dev/null | grep -q "${MODEL%%:*}" || ollama pull "$MODEL"
+  printf "${CY}▸ Ordliste${C0}\n"
+  if [ ! -f /usr/share/wordlists/rockyou.txt ] && [ -f /usr/share/wordlists/rockyou.txt.gz ]; then
+    gunzip -k /usr/share/wordlists/rockyou.txt.gz; fi
+  printf "${CY}▸ Konfig + global kommando${C0}\n"
+  [ -f config/authorized_targets.yaml ] || cp config/authorized_targets.example.yaml config/authorized_targets.yaml
+  chmod +x connect
+  ln -sf "$(pwd)/connect" /usr/local/bin/connect
+  printf "\n${GR}${B}✓ Alt installert.${C0}\n"
+  printf "${GY}  Legg nettet ditt i ${C0}config/authorized_targets.yaml${GY}, så:${C0}\n"
+  printf "  ${B}sudo connect start${C0}\n\n"; }
+
+step1(){ need_root "$@"; logo
+  printf "${MG}${B}  STEG 1 — WiFi (monitor mode)${C0}\n"
+  printf "${YL}${B}⚠  Nettet forsvinner nå (kortet i monitor mode). ${C0}${YL}connect stop gir det tilbake.${C0}\n\n"
+  ensure_ollama
+  printf "${CY}▸ Frigjør kort + monitor mode${C0}\n"
+  systemctl stop NetworkManager 2>/dev/null && touch "$RUN/nm.stopped"
+  airmon-ng check kill >/dev/null 2>&1
+  airmon-ng start "$IFACE" >/dev/null 2>&1
+  MON=$(iw dev 2>/dev/null | awk '/Interface/{print $2}' | grep -m1 mon); MON="${MON:-${IFACE}mon}"
+  echo "$MON" > "$RUN/iface"; printf "  interface: ${B}%s${C0}\n" "$MON"
+  ensure_server "$MON"; echo 1 > "$RUN/phase"
+  printf "\n${GR}${B}✓ Steg 1 oppe.${C0}  Dashbord: ${B}${BL}http://127.0.0.1:8777${C0}\n"
+  printf "${GY}  Skann, fang håndtrykk, crack passord. Når du har passordet:${C0}\n"
+  printf "  ${B}sudo connect step2 \"SSID\" \"passord\"${C0}  ${GY}(for enhets- og CVE-skanning)${C0}\n\n"; }
+
+step2(){ need_root "$@"; logo
+  SSID="${2:-}"; PASS="${3:-}"
+  if [ ! -f "$RUN/step1_done" ]; then
+    printf "${RD}${B}✗ Steg 1 er ikke fullført.${C0} Fang håndtrykk og crack passordet i steg 1 først.\n"
+    printf "${GY}  (Dashbordet viser når passordet er funnet.)${C0}\n\n"; exit 1; fi
+  if [ -z "$SSID" ] || [ -z "$PASS" ]; then
+    printf "${RD}${B}✗ Mangler nett.${C0} Bruk: ${B}sudo connect step2 \"SSID\" \"passord\"${C0}\n\n"; exit 1; fi
+  printf "${MG}${B}  STEG 2 — Enhetsanalyse (nett aktivt)${C0}\n\n"
+  printf "${CY}▸ Kort tilbake til vanlig modus${C0}\n"
+  MON=$(cat "$RUN/iface" 2>/dev/null || echo "${IFACE}mon")
+  airmon-ng stop "$MON" >/dev/null 2>&1
+  printf "${CY}▸ Nett på${C0}\n"
+  systemctl restart NetworkManager 2>/dev/null; systemctl start wpa_supplicant 2>/dev/null; sleep 3
+  if [ -n "$SSID" ]; then printf "${CY}▸ Kobler til ${B}%s${C0}\n" "$SSID"
+    nmcli device wifi connect "$SSID" password "$PASS" 2>&1 | sed 's/^/  /'; fi
+  ensure_ollama; ensure_server "${IFACE}"
+  echo 2 > "$RUN/phase"
+  printf "\n${GR}${B}✓ Steg 2 oppe. Internett + LAN aktivt.${C0}  Dashbord: ${B}${BL}http://127.0.0.1:8777${C0}\n"
+  printf "${GY}  Kjør enhets-sårbarhetsskann fra dashbordet nå (CVE-oppslag virker her).${C0}\n"
+  printf "${GY}  Ferdig? ${C0}${B}sudo connect stop${C0}\n\n"; }
+
+stop(){ need_root "$@"; logo
+  printf "${CY}▸ Stopper agent og prosesser${C0}\n"
+  [ -f "$RUN/server.pid" ] && kill "$(cat "$RUN/server.pid")" 2>/dev/null
+  pkill -f wifi_agent.server 2>/dev/null
+  for t in airodump-ng aireplay-ng aircrack-ng tshark; do pkill -x "$t" 2>/dev/null; done
+  printf "${CY}▸ Kort tilbake til vanlig modus${C0}\n"
+  MON=$(cat "$RUN/iface" 2>/dev/null || echo "${IFACE}mon"); airmon-ng stop "$MON" >/dev/null 2>&1
+  printf "${CY}▸ Starter nettet${C0}\n"
+  systemctl restart NetworkManager 2>/dev/null; systemctl start wpa_supplicant 2>/dev/null
+  printf "${CY}▸ Tar ned Ollama${C0}\n"; ollama stop "$MODEL" 2>/dev/null
+  if [ -f "$RUN/ollama.started" ]; then [ -f "$RUN/ollama.pid" ] && kill "$(cat "$RUN/ollama.pid")" 2>/dev/null
+    pkill -x ollama 2>/dev/null; rm -f "$RUN/ollama.started" "$RUN/ollama.pid"; fi
+  rm -f "$RUN/server.pid" "$RUN/iface" "$RUN/phase" "$RUN/nm.stopped"
+  printf "\n${GR}${B}✓ Alt nede. Nettet er tilbake.${C0}\n\n"; }
+
+status(){ logo
+  ph=$(cat "$RUN/phase" 2>/dev/null || echo "-")
+  srv="nede"; pgrep -f wifi_agent.server >/dev/null && srv="${GR}oppe${C0}"
+  oll="nede"; curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && oll="${GR}oppe${C0}"
+  mon=$(iw dev 2>/dev/null | awk '/Interface/{print $2}' | grep -m1 mon)
+  printf "  Fase          : ${B}steg %s${C0}\n" "$ph"
+  printf "  Agent/dashbord: ${B}%b${C0}\n" "$srv"
+  printf "  Ollama        : ${B}%b${C0}\n" "$oll"
+  printf "  Monitor-iface : ${B}%s${C0}\n\n" "${mon:-ingen (vanlig modus)}"; }
+
+help_page(){ logo
+  seg(){ printf "\n${MG}${B}  %s${C0}\n" "$1"; }
+  cmd(){ printf "    ${GR}${B}%-34s${C0} ${GY}%s${C0}\n" "$1" "$2"; }
+  seg "INSTALLASJON (første gang)"
+  cmd "sudo connect install"            "Installerer alle verktøy + agenten"
+  seg "STEG 1 — WiFi (monitor mode, uten nett)"
+  cmd "sudo connect step1"              "Ollama + monitor mode + dashbord"
+  printf "    ${GY}Skann, fang håndtrykk, crack passord. Dashbord: ${BL}http://127.0.0.1:8777${C0}\n"
+  seg "STEG 2 — Enhetsanalyse (nett aktivt)"
+  cmd "sudo connect step2 \"SSID\" \"passord\""  "Nett på, kobler til nettet, CVE-skann"
+  printf "    ${GY}Sårbarhetsskann av enheter med CVE-oppslag (trenger internett).${C0}\n"
+  seg "AVSLUTNING"
+  cmd "sudo connect stop"               "Stopper alt, kort tilbake, nett tilbake, Ollama ned"
+  seg "ANNET"
+  cmd "connect status"                  "Hvilken fase + hva kjører"
+  cmd "OLLAMA_MODEL=qwen3:30b-a3b sudo connect step1" "bedre modell, bruker RAM-en din"
+  seg "HVIS NETTET HENGER"
+  cmd "sudo airmon-ng stop wlan0mon"      "kort tilbake til vanlig modus"
+  cmd "sudo systemctl restart NetworkManager" "starter nettet på nytt"
+  printf "\n${GY}  Kun nett du eier eller har tillatelse til å teste.${C0}\n\n"; }
+
+case "${1:-help}" in
+  install|setup) install "$@";;
+  step1|start) step1 "$@";;
+  step2)       step2 "$@";;
+  stop)        stop "$@";;
+  status)      status;;
+  help|-h|--help|*) help_page;;
+esac

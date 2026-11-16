@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+captures/*.cap
+captures/*.pcap*
+reports/*.json
+reports/*.md
+config/authorized_targets.yaml
+wordlists/*.txt
+.run/

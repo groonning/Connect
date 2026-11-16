@@ -1,0 +1,13 @@
+# Only networks listed here can be actively tested. Copy to
+# authorized_targets.yaml and fill in YOUR OWN networks / authorised engagements.
+#
+# bssid: AP MAC address (format AA:BB:CC:DD:EE:FF). Required for the scope match.
+# ssid:  network name, for your reference.
+# note:  why you're authorised (e.g. "my home router", "client X, signed 2026-11").
+targets:
+  - ssid: "MyHomeNet"
+    bssid: "AA:BB:CC:DD:EE:FF"
+    note: "my own home router"
+
+# LLM: the agent uses a local Ollama model. Default qwen2.5:7b.
+# Override:  OLLAMA_MODEL=qwen3:30b-a3b python3 -m wifi_agent.server --iface wlan0mon
