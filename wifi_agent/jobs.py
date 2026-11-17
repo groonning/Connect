@@ -134,8 +134,11 @@ class JobManager:
                "-w", prefix, "--output-format", "pcap", self.iface]
         inject_note = ""
         try:
-            # PHASE 1 — PMKID (clientless, most effective; no injection needed)
-            if shutil.which("hcxdumptool"):
+            # PHASE 1 — active PMKID (hcxdumptool). Needs injection and takes over
+            # the interface, so ONLY run it in active mode. Passive capture must
+            # stay pure airodump (identical to the raw tool) — nothing else may
+            # touch the monitor interface, or it breaks passive capture.
+            if deauth and shutil.which("hcxdumptool"):
                 job.message = "prøver aktiv PMKID (krever injection)…"
                 pf, got = self._pmkid_attack(job.bssid, channel, seconds=18)
                 if got:
