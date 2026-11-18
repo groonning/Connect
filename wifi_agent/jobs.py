@@ -130,8 +130,10 @@ class JobManager:
         d = os.path.join(self.out_dir, job.bssid.replace(":", ""))
         os.makedirs(d, exist_ok=True)
         prefix = os.path.join(d, "cap")
-        cmd = ["airodump-ng", "--bssid", job.bssid, "-c", channel,
-               "-w", prefix, "--output-format", "pcap", self.iface]
+        cmd = ["airodump-ng", "--bssid", job.bssid]
+        if channel:
+            cmd += ["-c", channel]          # omit when unknown -> airodump hops
+        cmd += ["-w", prefix, "--output-format", "pcap", self.iface]
         inject_note = ""
         try:
             # PHASE 1 — active PMKID (hcxdumptool). Needs injection and takes over
@@ -376,8 +378,9 @@ class JobManager:
                 if crk and (crk.password or crk.status == "running"):
                     continue
                 if not cap or cap.status not in ("running", "handshake"):
+                    ch = self._channel_for(b)       # resolve from live scan
                     try:
-                        self.start_capture(b, "", self.auto_deauth)
+                        self.start_capture(b, ch, self.auto_deauth)
                     except Exception:
                         pass
                 elif cap.handshake and not crk:
@@ -387,6 +390,18 @@ class JobManager:
                     except Exception:
                         pass
             time.sleep(10)
+
+    def _channel_for(self, bssid: str) -> str:
+        """Best-known channel for an AP from the live scanner ("" if unknown)."""
+        if not self.scanner:
+            return ""
+        try:
+            for a in self.scanner.read().get("aps", []):
+                if a.get("bssid", "").upper() == bssid.upper():
+                    return a.get("channel", "") or ""
+        except Exception:
+            pass
+        return ""
 
     def snapshot(self) -> dict:
         return {k: j.dict() for k, j in self.jobs.items()}

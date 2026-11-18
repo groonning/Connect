@@ -105,6 +105,7 @@ step1(){ need_root "$@"; ensure_link; logo
   printf "${MG}${B}  STEG 1 — WiFi (monitor mode)${C0}\n"
   printf "${YL}${B}⚠  Nettet forsvinner nå (kortet i monitor mode). ${C0}${YL}connect stop gir det tilbake.${C0}\n\n"
   ensure_ollama
+  rm -f "$RUN/step1_done"          # fresh capture session: reset the step-2 gate
   printf "${CY}▸ Frigjør kort + monitor mode${C0}\n"
   systemctl stop NetworkManager 2>/dev/null && touch "$RUN/nm.stopped"
   airmon-ng check kill >/dev/null 2>&1

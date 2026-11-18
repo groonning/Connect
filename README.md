@@ -17,13 +17,13 @@ sudo ./connect install     # verktøy (aircrack-ng, wifite, tshark, nmap) + Olla
 Legg nettet ditt i `config/authorized_targets.yaml`, så:
 
 ```bash
-sudo connect start         # STEG 1: monitor mode — skann, fang håndtrykk, crack passord
+sudo connect step1         # STEG 1: monitor mode — skann, fang håndtrykk, crack passord
 #   dashbord: http://127.0.0.1:8777
 sudo connect step2 "SSID" "passord"   # STEG 2: nett på — enhets- og CVE-skann
 sudo connect stop          # stopper alt, kort tilbake, nett tilbake, Ollama ned
 ```
 
-`connect start` tar nettet (monitor mode på ett kort); `connect step2` og `connect stop` gir det tilbake.
+`connect step1` tar nettet (monitor mode på ett kort); `connect step2` og `connect stop` gir det tilbake.
 `connect update` henter siste versjon fra GitHub. `connect help` viser alle kommandoer, `connect status` viser hvilken fase du er i.
 
 ## ⚠️ Authorisation — read first
@@ -85,7 +85,13 @@ Manual/low-level use is still available via `python3 cli.py scan --iface wlan0mo
 
 ## Status
 
-Scaffold. Tool wrappers are functional skeletons: recon/parse logic is wired,
-and each `run()` builds the real command but is guarded so nothing active fires
-until you've set your interface and authorised targets. Fill in the LLM in
-`agent.py` to get automated planning and report-writing.
+Functional. The scope gate, tool wrappers, two-phase `connect` lifecycle, live
+scanner, capture + crack jobs (with a clientless PMKID fallback for cards that
+can't inject), device/CVE scanning (`nmap --script vuln`) and the local-LLM
+report layer are all implemented and the modules compile clean.
+
+What's left is mostly hardware, not code: active deauth needs a WiFi adapter
+with monitor mode **and** packet injection (e.g. MediaTek MT7612U or Realtek
+RTL8812AU). Without one, capture falls back to passive + PMKID. Before first run,
+set your interface and add YOUR OWN networks to
+`config/authorized_targets.yaml`, then `sudo connect step1`.
